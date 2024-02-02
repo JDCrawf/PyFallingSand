@@ -33,12 +33,13 @@ Make sure you have the following dependencies installed before running the appli
 	cd PyFallingSand
 	```
 
+3. Launch the PyFallingSand application
+
     ```bash
     py falling-sand.py
     ```
 
-    Click and drag the left mouse button to draw sand particles.
-    Observe the simulated falling and sliding behavior of the sand.
+4. Click and drag the left mouse button to draw sand particles and watch as the particles fall and interact with each other.
 
 ## Configuration
 
