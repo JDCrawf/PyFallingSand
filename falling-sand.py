@@ -1,5 +1,5 @@
 import tkinter as tk
-import random
+from random import choice, random
 
 '''
     Here is basic idea
@@ -17,28 +17,57 @@ import random
         maybe add different rules for interactions
             i.e. sand/water fall, stone/wood stays in place, fire burns wood then fades, water dowses fire, etc...44
 '''
-# Base window Variables
-window_width = 600
-window_height = 500
-window_title = "Python Falling Sand"
+class FallingSand:
+    def __init__(self, root, width, height, cell_size):
+        # Window Variables
+        self.root = root
+        self.root.title("Python Falling Sand")
+        self.root.geometry(f"{width}x{height}")
+        self.root.resizable(False,False)
+        
+        # Build the options menu
+        self.build_menu()
+       
+        # Simulation Variables
+        self.rows = height // cell_size
+        self.columns = width // cell_size
+        self.grid =  [[0 for _ in range(self.columns)] for _ in range(self.rows)] 
+        
+        # Canvas Variables
+        self.canvas_width = width
+        self.canvas_height = height
+        self.cell_size = cell_size
+    
+    def build_menu(self):
+        menu_bar = tk.Menu(self.root)
+        file_menu = tk.Menu(menu_bar, tearoff=0)
+        file_menu.add_command(label="New")
+        file_menu.add_command(label="Open")
+        file_menu.add_command(label="Save (Ctrl + S)")
+        file_menu.add_separator()
+        file_menu.add_command(label="Exit", command=self.root.quit)
+        menu_bar.add_cascade(label="File", menu=file_menu)
+        
+        edit_menu = tk.Menu(menu_bar, tearoff=0)
+        edit_menu.add_command(label="Undo (Ctrl + Z)")
+        edit_menu.add_command(label="Redo (Ctrl + Y)")
+        menu_bar.add_cascade(label="Edit", menu=edit_menu)
 
-# Simulation variables
-
-# Initialize the window
-root = tk.Tk()
-root.title(window_title)
-root.geometry(f"{window_width}x{window_height}")
-root.resizable(True, True)
-
-
-
-
-
-
-
-
-
+        info_menu = tk.Menu(menu_bar, tearoff=0)
+        info_menu.add_command(label="Particle Info")
+        info_menu.add_command(label="About...")
+        menu_bar.add_cascade(label="Help", menu=info_menu)
+        
+        self.root.config(menu=menu_bar)
+    
+    
+    def run(self):
+        self.root.mainloop()
 
 
 if __name__ == '__main__':
-    root.mainloop()
+    window_width, window_height = 600,500
+    cell_size = 50
+    root = tk.Tk()
+    app = FallingSand(root, window_width, window_height, cell_size)
+    app.run()
