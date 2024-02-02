@@ -18,10 +18,10 @@ from random import choice, random
             i.e. sand/water fall, stone/wood stays in place, fire burns wood then fades, water dowses fire, etc...44
 '''
 class FallingSand:
-    def __init__(self, root, width, height, cell_size):
+    def __init__(self, root, title, width, height, cell_size):
         # Window Variables
         self.root = root
-        self.root.title("Python Falling Sand")
+        self.root.title(title)
         self.root.geometry(f"{width}x{height}")
         self.root.resizable(False,False)
         
@@ -68,6 +68,7 @@ class FallingSand:
 if __name__ == '__main__':
     window_width, window_height = 600,500
     cell_size = 50
+    applicaiton_title = "Python Sand Simulator"
     root = tk.Tk()
-    app = FallingSand(root, window_width, window_height, cell_size)
+    app = FallingSand(root, applicaiton_title, window_width, window_height, cell_size)
     app.run()
