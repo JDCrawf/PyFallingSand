@@ -1,22 +1,6 @@
 import tkinter as tk
 from random import choice, random
 
-'''
-    Here is basic idea
-    Cellular automata
-    Create a 2d grid in a tkinter window
-    each grid location holds a value if there is a sand located there or not(0 or 1)
-    each step, check if the spot below a sand is empty,
-        if so move the sand to that empty spot
-    else if the spot is not empty, check the down1/left1 or down1/right1 locations to see if either of them is empty,
-        if so then move the sand to that spot
-    make sure to constrain checking to within the grid
-    and have the sand stop moving when it reaches an edge of the grid
-    
-    after the basic foundation is made we can work on extra features
-        maybe add different rules for interactions
-            i.e. sand/water fall, stone/wood stays in place, fire burns wood then fades, water dowses fire, etc...44
-'''
 class FallingSand:
     def __init__(self, root, title, width, height, cell_size):
         # Window Variables
@@ -29,16 +13,43 @@ class FallingSand:
         self.build_menu()
        
         # Simulation Variables
-        self.rows = height // cell_size
+        self.rows    = height // cell_size
         self.columns = width // cell_size
-        self.grid =  [[0 for _ in range(self.columns)] for _ in range(self.rows)] 
+        self.grid    = [[0 for _ in range(self.columns)] for _ in range(self.rows)] 
         
         # Canvas Variables
-        self.canvas_width = width
-        self.canvas_height = height
-        self.cell_size = cell_size
+        self.canvas_width   = width
+        self.canvas_height  = height
+        self.cell_size      = cell_size
+        
+        self.canvas = tk.Canvas(root, width=width, height=height, bg="white")
+        self.canvas.pack()
+        
+        # Draw and update the sand particles
+        self.canvas.bind("<Button-1>", self.draw_sand) # draw a sand particle when the "Button-1" event happens with the self.draw_sand function
+        self.canvas.bind("<B1-Motion>", self.draw_sand)
+        
+    def draw_sand(self, event):
+        # draw the sand particle when the event is triggered
+        row     = event.y // self.cell_size
+        column  = event.x // self.cell_size
+        
+        # Checks to see if in the bounds of the canvas
+        if 0 <= row < self.rows and 0 <= column <= self.columns:
+            self.grid[row][column] = 1
+            self.update_canvas()
+    
+    def update_canvas(self):
+        self.canvas.delete("all")
+        for row in range(self.rows):
+            for column in range(self.columns):
+                if self.grid[row][column] == 1:
+                    x = column * self.cell_size
+                    y = row * self.cell_size
+                    self.canvas.create_rectangle(x, y, x + self.cell_size, y + self.cell_size, fill="black", outline="")
     
     def build_menu(self):
+        # TODO: Make the menus work
         menu_bar = tk.Menu(self.root)
         file_menu = tk.Menu(menu_bar, tearoff=0)
         file_menu.add_command(label="New")
@@ -67,7 +78,7 @@ class FallingSand:
 
 if __name__ == '__main__':
     window_width, window_height = 600,500
-    cell_size = 50
+    cell_size = 10
     applicaiton_title = "Python Sand Simulator"
     root = tk.Tk()
     app = FallingSand(root, applicaiton_title, window_width, window_height, cell_size)
