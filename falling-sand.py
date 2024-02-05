@@ -5,14 +5,14 @@ import time
 
 # These are not being used yet
 AIR = 0
-WALL = 1
+STONE = 1
 SAND = 2
 WATER = 3
 
 # element colors
 # https://www.plus2net.com/python/tkinter-colors.php
 AIR_COLOR = "#FAEBD7"
-WALL_COLOR = "gray27"
+STONE_COLOR = "gray27"
 SAND_COLOR = "#F4A460"
 WATER_COLOR = "CadeyBlue1"
 
@@ -25,8 +25,7 @@ class FallingSand:
         self.root.resizable(False,False)
         
         # Build the options menu
-        self.current_particle = tk.IntVar()
-        self.current_particle.set(SAND)
+        self.current_particle = SAND
         self.build_menu()
        
         # Simulation Variables
@@ -86,41 +85,75 @@ class FallingSand:
             
             # Checks to see if in the bounds of the canvas
             if 0 <= row < self.rows and 0 <= column <= self.columns-1:
-                
-                self.grid[row][column] = (SAND, self.vary_color(SAND_COLOR))
+                if self.current_particle == SAND: # If current particle is SAND
+                    self.grid[row][column] = (SAND, self.vary_color(SAND_COLOR))
+                elif self.current_particle == WATER: # If current particle is WATER
+                    self.grid[row][column] = (WATER, self.vary_color(WATER_COLOR))
                 self.changed_particles[(row, column)] = True
             self.root.after(10, self.draw_particle)
     
     def update_particle(self):
         new_grid = np.zeros((self.rows, self.columns, 2), dtype=object)
-                
+        
         # parse through the entire grid
         for row in range(self.rows - 1, -1, -1): # parse from down to up
             for column in range(self.columns): # parse from left to right
-                # SAND
-                # falls straight down then slides diagonally down if possible
-                if self.grid[row][column][0] == SAND:
-                    if row == self.rows - 1: # if you're at the bottom, stay in place
-                        new_grid[row][column] = self.grid[row][column]
-                    elif self.grid[row+1][column][0] > 0: # if there is a something(not AIR) below you,
-                        dir = choice([-1,1]) # pick a random direction, -1 left or +1 right
-                        if (0 <= column+dir < self.columns) and (self.grid[row+1][column+dir][0] == AIR) and (new_grid[row+1][column+dir][0] == AIR): # if the tile down one and to the direction 1 is in bounds AND empty AND there is not already a new sand in that spot
-                            new_grid[row+1][column+dir] = self.grid[row][column]
+                # Falling particles stop at the botom
+                if row == self.rows - 1: # if you're at the bottom, stay in place
+                    new_grid[row][column] = self.grid[row][column]
+                else:
+                    # SAND
+                    # falls straight down then moves diagonally down if blocked
+                    if self.grid[row][column][0] == SAND:
+                        # if there is a something(not AIR or water) below you,
+                        if self.grid[row+1][column][0] != AIR:
+                            # pick a random direction, -1 left or +1 right
+                            dir = choice([-1,1])
+                            # if the tile down one and to the direction 1 is in bounds AND empty AND there is not already a new sand in that spot
+                            if 0 <= column+dir < self.columns and self.grid[row+1][column+dir][0] == AIR and new_grid[row+1][column+dir][0] == AIR:
+                                new_grid[row+1][column+dir] = self.grid[row][column]
+                                self.changed_particles[(row, column)] = True
+                                self.changed_particles[(row+1,column+dir)] = True
+                            # if the other tile down one and to the other direction is in bounds AND empty AND there is not already a new sand in that spot
+                            elif 0 <= column-dir < self.columns and self.grid[row+1][column-dir][0] == AIR and new_grid[row+1][column-dir][0] == AIR:
+                                new_grid[row+1][column-dir] = self.grid[row][column]
+                                self.changed_particles[(row, column)] = True
+                                self.changed_particles[(row+1,column-dir)] = True
+                            # if both diagonal/down tiles are filled, stay in place
+                            else:
+                                new_grid[row][column] = self.grid[row][column]
+                        # otherwise move down one
+                        else:
+                            new_grid[row + 1][column] = self.grid[row][column]
                             self.changed_particles[(row, column)] = True
-                            self.changed_particles[(row+1,column+dir)] = True
-                        elif (0 <= column-dir < self.columns) and (self.grid[row+1][column-dir][0] == AIR) and (new_grid[row+1][column-dir][0] == AIR): # if the other tile down one and to the other direction is in bounds AND empty AND there is not already a new sand in that spot
-                            new_grid[row+1][column-dir] = self.grid[row][column]
-                            self.changed_particles[(row, column)] = True
-                            self.changed_particles[(row+1,column-dir)] = True
-                        else: # otherwise stay in place
-                            new_grid[row][column] = self.grid[row][column]
-                    else: # no obsticals or out of bounds, move down one
-                        new_grid[row + 1][column] = self.grid[row][column]
-                        self.changed_particles[(row, column)] = True
-                        self.changed_particles[(row+1,column)] = True
+                            self.changed_particles[(row+1,column)] = True
+                    # WATER
+                    # falls straight down then slides left or right blocked
+                    elif self.grid[row][column][0] == WATER:
+                        # if there is something below this particle
+                        if self.grid[row+1][column][0] != AIR:
+                            # choose a random direction left, or right
+                            dir = choice([-1, 0, 1])
+                            # if the tile to one to the direction is in bounds AND empty AND there is not aleady something assigned to move there
+                            if 0 <= column+dir < self.columns and self.grid[row][column+dir][0] == AIR and new_grid[row][column+dir][0] == AIR and dir != 0:
+                                new_grid[row][column+dir] = self.grid[row][column]
+                                self.changed_particles[(row,column)] = True
+                                self.changed_particles[(row,column+dir)] = True
+                            # else check the other direction
+                            elif 0 <= column-dir < self.columns and self.grid[row][column-dir][0] == AIR and new_grid[row][column-dir][0] == AIR and dir != 0:
+                                new_grid[row][column-dir] = self.grid[row][column]
+                                self.changed_particles[(row,column)] = True
+                                self.changed_particles[(row,column-dir)] = True
+                            # if both sides are filled, stay in place
+                            else:
+                                new_grid[row][column] = self.grid[row][column]
+                        # otherwise move down one
+                        else:
+                            new_grid[row+1][column] = self.grid[row][column]
+                            self.changed_particles[(row,column)] = True
+                            self.changed_particles[(row+1,column)] = True
+                
                 # TODO: Add different element's logic here
-                # WATER
-                # falls straight down then slides left or right if possible
         self.grid = new_grid
         self.update_canvas()
         
@@ -149,15 +182,14 @@ class FallingSand:
             # delete the rectangle if the new spot is air
             if self.grid[row][column][0] == AIR:
                 self.canvas.delete(self.canvas.find_overlapping(x,y,x+1,y+1))    
-            # draw the sand
-            if self.grid[row][column][0] == SAND:
+            else: # draw the particle
                 self.canvas.create_rectangle(x, y, x + self.cell_size, y + self.cell_size, fill=self.grid[row][column][1], outline="")
         self.root.update_idletasks()
         # clear the list of changed particles
         self.changed_particles = {}
 
-    def set_particle(self):
-        pass
+    def set_particle(self, value):
+        self.current_particle = value
     
     def build_menu(self):
         # TODO: Make the menus work
@@ -176,10 +208,10 @@ class FallingSand:
         menu_bar.add_cascade(label="Edit", menu=edit_menu)
 
         particle_menu = tk.Menu(menu_bar, tearoff=0)
-        particle_menu.add_radiobutton(label="Sand", variable=self.current_particle, value=SAND, command=self.set_particle)
-        particle_menu.add_radiobutton(label="Water", variable=self.current_particle, value=WATER, command=self.set_particle)
-        particle_menu.add_radiobutton(label="Wall", variable=self.current_particle, value=WALL, command=self.set_particle)
-        particle_menu.add_radiobutton(label="Erase", variable=self.current_particle, value=AIR, command=self.set_particle)
+        particle_menu.add_radiobutton(label="Sand", command=lambda: self.set_particle(SAND))
+        particle_menu.add_radiobutton(label="Water", command=lambda: self.set_particle(WATER))
+        particle_menu.add_radiobutton(label="Stone", command=lambda: self.set_particle(STONE))
+        particle_menu.add_radiobutton(label="Erase", command=lambda: self.set_particle(AIR))
         menu_bar.add_cascade(label="Particles", menu=particle_menu)
         
         info_menu = tk.Menu(menu_bar, tearoff=0)
