@@ -17,38 +17,42 @@ SAND_COLOR = "#F4A460"
 WATER_COLOR = "CadeyBlue1"
 
 class FallingSand:
-    def __init__(self, root, title, width, height, cell_size, target_fps):
+    def __init__(self, root, title, width, height, cell_size, target_fps, debug):
         # Window Variables
         self.root = root
         self.root.title(title)
         self.root.geometry(f"{width}x{height}")
         self.root.resizable(False,False)
+        self.debug = debug
         
         # Build the options menu
         self.current_particle = SAND
         self.build_menu()
        
         # Simulation Variables
-        self.rows    = height // cell_size
-        self.columns = width // cell_size
+        self.columns = width // cell_size  # x
+        self.rows    = height // cell_size # y
         self.grid    = np.zeros((self.rows, self.columns, 2), dtype=object) # creates a 2d grid, each containing a tuple with an int representing the particle type and a string for the color
         self.drawing = False
         self.mouse_position = (0,0)
         self.target_fps = target_fps
+        self.delay = 0
         
         # Canvas Variables
         self.canvas_width   = width
         self.canvas_height  = height
         self.cell_size      = cell_size
-        self.changed_particles = {(row, column): False for row in range(self.rows) for column in range(self.columns)}
         
         self.vary_color(SAND_COLOR)
         
         self.canvas = tk.Canvas(root, width=width, height=height, bg=AIR_COLOR)
         self.canvas.pack()
+        if self.debug:
+            #print(f"rows: {self.rows}\ncolumns: {self.columns}")
+            self.debug_tile_labels()        
         
         # Create an FPS counter label
-        self.fps_label = tk.Label(root, text="FPSL 0", font=("Helvetica", 12))
+        self.fps_label = tk.Label(root, text="FPS: 0", font=("Helvetica", 12))
         self.fps_label.place(x=10, y=10)
         self.last_time = time.time()
         
@@ -68,6 +72,8 @@ class FallingSand:
     
     def track_mouse(self, event):
         self.mouse_position = (event.x, event.y)
+        #if self.debug:
+        #    print(f"{event.x//self.cell_size}x{event.y//self.cell_size}")
     
     def vary_color(self, color):
         # color is set to hex values
@@ -77,86 +83,86 @@ class FallingSand:
         varied_color = f"#{color[1]}{choice(hex_range)}{color[3]}{choice(hex_range)}{color[5]}{choice(hex_range)}"
         return varied_color
     
+    def debug_tile_labels(self):
+        print(f"rows: {self.rows}\ncolumns:{self.columns}")
+        for row in range(self.rows):
+            for column in range(self.columns):
+                self.canvas.create_text(column*self.cell_size + 10, row*self.cell_size + 10, text=f"{row},{column}", font=("Helvetica", 8)) 
+
+    def swap_particles(self, particle_1, particle_2):
+        grid_x1 = particle_1[0]
+        grid_y1 = particle_1[1]
+        grid_x2 = particle_2[0]
+        grid_y2 = particle_2[1]
+        # pass the particle location as a tuple(row, column)
+        temp = tuple(self.grid[grid_x1][grid_y1])
+        self.grid[grid_x1][grid_y1] = self.grid[grid_x2][grid_y2]
+        self.grid[grid_x2][grid_y2] = temp
+
+        canvas_y1 = grid_x1 * self.cell_size
+        canvas_x1 = grid_y1 * self.cell_size
+        canvas_y2 = grid_x2 * self.cell_size
+        canvas_x2 = grid_y2 * self.cell_size
+        # If the particle at location1 is now air, delete the rectangle
+        if self.grid[grid_x1][grid_y1][0] == AIR:
+            self.canvas.delete(self.canvas.find_overlapping(canvas_x1+1,canvas_y1+1,canvas_x1+2,canvas_y1+2))
+        # else draw whatever particle is at location2
+        else:
+            self.canvas.create_rectangle(canvas_x1, canvas_y1, canvas_x1+cell_size, canvas_y1+cell_size, fill=self.grid[grid_x1][grid_y1][1], outline="")
+        
+        # If the particle at location2 is now air, delete the rectangle
+        if self.grid[grid_x2][grid_y2][0] == AIR:
+            self.canvas.delete(self.canvas.find_overlapping(canvas_x2+1,canvas_y2+1,canvas_x2+2,canvas_y2+2))
+        # else draw whatever particle is at location2
+        else:
+            self.canvas.create_rectangle(canvas_x2, canvas_y2, canvas_x2+cell_size, canvas_y2+cell_size, fill=self.grid[grid_x2][grid_y2][1], outline="")
+
+
     def draw_particle(self):
         if self.drawing:
             # draw the sand particle when the event is triggered
-            row     = self.mouse_position[1] // self.cell_size
             column  = self.mouse_position[0] // self.cell_size
-            
+            row     = self.mouse_position[1] // self.cell_size
+
             # Checks to see if in the bounds of the canvas
             if 0 <= row < self.rows and 0 <= column <= self.columns-1:
                 if self.current_particle == SAND: # If current particle is SAND
                     self.grid[row][column] = (SAND, self.vary_color(SAND_COLOR))
                 elif self.current_particle == WATER: # If current particle is WATER
                     self.grid[row][column] = (WATER, self.vary_color(WATER_COLOR))
-                self.changed_particles[(row, column)] = True
-            self.root.after(10, self.draw_particle)
+            self.root.after_idle(self.draw_particle)
     
-    def update_particle(self):
-        new_grid = np.zeros((self.rows, self.columns, 2), dtype=object)
-        
+    def update_particle(self): 
         # parse through the entire grid
         for row in range(self.rows - 1, -1, -1): # parse from down to up
             for column in range(self.columns): # parse from left to right
-                # Falling particles stop at the botom
-                if row == self.rows - 1: # if you're at the bottom, stay in place
-                    new_grid[row][column] = self.grid[row][column]
-                else:
-                    # SAND
-                    # falls straight down then moves diagonally down if blocked
-                    if self.grid[row][column][0] == SAND:
-                        # if there is a something(not AIR or water) below you,
-                        if self.grid[row+1][column][0] != AIR:
-                            # pick a random direction, -1 left or +1 right
-                            dir = choice([-1,1])
-                            # if the tile down one and to the direction 1 is in bounds AND empty AND there is not already a new sand in that spot
-                            if 0 <= column+dir < self.columns and self.grid[row+1][column+dir][0] == AIR and new_grid[row+1][column+dir][0] == AIR:
-                                new_grid[row+1][column+dir] = self.grid[row][column]
-                                self.changed_particles[(row, column)] = True
-                                self.changed_particles[(row+1,column+dir)] = True
-                            # if the other tile down one and to the other direction is in bounds AND empty AND there is not already a new sand in that spot
-                            elif 0 <= column-dir < self.columns and self.grid[row+1][column-dir][0] == AIR and new_grid[row+1][column-dir][0] == AIR:
-                                new_grid[row+1][column-dir] = self.grid[row][column]
-                                self.changed_particles[(row, column)] = True
-                                self.changed_particles[(row+1,column-dir)] = True
-                            # if both diagonal/down tiles are filled, stay in place
-                            else:
-                                new_grid[row][column] = self.grid[row][column]
-                        # otherwise move down one
+                # SAND
+                if self.grid[row][column][0] == SAND:
+                    # if it's the bottom of the grid
+                    if row == self.rows - 1:
+                        # DO NOTHING, particle stays in place
+                        pass
+                    # If it encounter a non-AIR, non-WATER obstacle
+                    elif self.grid[row+1][column][0] != AIR and self.grid[row+1][column][0] != WATER:
+                        # pick a random direction
+                        direction = choice([-1,1])
+                        # if the tile down one and to the direction on is AIR or WATER, then swap with that tile
+                        if 0<= column+direction < self.columns:
+                            if self.grid[row+1][column+direction][0] == AIR or self.grid[row+1][column+direction][0] == WATER:
+                                self.swap_particles((row,column),(row+1,column+direction))
+                        # if the tile down one and to the direction on is AIR or WATER, then swap with that tile
+                        elif  0<= column-direction < self.columns:
+                            if self.grid[row+1][column-direction][0] == AIR or self.grid[row+1][column-direction][0] == WATER:
+                                self.swap_particles((row,column),(row+1,column-direction))
+                        # if both diagonal spots have non-AIR or non-WATER particles, then stay in place
                         else:
-                            new_grid[row + 1][column] = self.grid[row][column]
-                            self.changed_particles[(row, column)] = True
-                            self.changed_particles[(row+1,column)] = True
-                    # WATER
-                    # falls straight down then slides left or right blocked
-                    elif self.grid[row][column][0] == WATER:
-                        # if there is something below this particle
-                        if self.grid[row+1][column][0] != AIR:
-                            # choose a random direction left, or right
-                            dir = choice([-1, 0, 1])
-                            # if the tile to one to the direction is in bounds AND empty AND there is not aleady something assigned to move there
-                            if 0 <= column+dir < self.columns and self.grid[row][column+dir][0] == AIR and new_grid[row][column+dir][0] == AIR and dir != 0:
-                                new_grid[row][column+dir] = self.grid[row][column]
-                                self.changed_particles[(row,column)] = True
-                                self.changed_particles[(row,column+dir)] = True
-                            # else check the other direction
-                            elif 0 <= column-dir < self.columns and self.grid[row][column-dir][0] == AIR and new_grid[row][column-dir][0] == AIR and dir != 0:
-                                new_grid[row][column-dir] = self.grid[row][column]
-                                self.changed_particles[(row,column)] = True
-                                self.changed_particles[(row,column-dir)] = True
-                            # if both sides are filled, stay in place
-                            else:
-                                new_grid[row][column] = self.grid[row][column]
-                        # otherwise move down one
-                        else:
-                            new_grid[row+1][column] = self.grid[row][column]
-                            self.changed_particles[(row,column)] = True
-                            self.changed_particles[(row+1,column)] = True
-                
-                # TODO: Add different element's logic here
-        self.grid = new_grid
-        self.update_canvas()
-        
+                            # DO NOTHING, particle stays in place
+                            pass
+                    # If there is no obstacles below it
+                    else:
+                        # move down one
+                        self.swap_particles((row,column),(row+1,column))
+
         # Calculate FPS
         current_time = time.time()
         elapsed_time = current_time - self.last_time
@@ -164,29 +170,14 @@ class FallingSand:
             fps = int(1/elapsed_time)
             
             # Adjust delay to hit target FPS
-            delay = max(0, int((500 / self.target_fps) - elapsed_time))
+            self.delay = max(0, int((500 / self.target_fps) - elapsed_time))
             
             self.last_time = current_time
             
             # Update FPS label
             self.fps_label.config(text=f"FPS: {fps}")
         
-        self.root.after(delay, self.update_particle)
-    
-    def update_canvas(self):
-        # delete any particles in the changed particles dictionary
-        # then draw the particles in the new locations
-        for row, column in self.changed_particles.keys():
-            x = column * self.cell_size
-            y = row * self.cell_size
-            # delete the rectangle if the new spot is air
-            if self.grid[row][column][0] == AIR:
-                self.canvas.delete(self.canvas.find_overlapping(x,y,x+1,y+1))    
-            else: # draw the particle
-                self.canvas.create_rectangle(x, y, x + self.cell_size, y + self.cell_size, fill=self.grid[row][column][1], outline="")
-        self.root.update_idletasks()
-        # clear the list of changed particles
-        self.changed_particles = {}
+        self.root.after(self.delay, self.update_particle)
 
     def set_particle(self, value):
         self.current_particle = value
@@ -230,7 +221,8 @@ if __name__ == '__main__':
     window_width, window_height = 800,600
     cell_size = 10
     target_fps = 30
-    applicaiton_title = "Python Sand Simulator"
+    application_title = "Python Sand Simulator"
+    debug = False
     root = tk.Tk()
-    app = FallingSand(root, applicaiton_title, window_width, window_height, cell_size, target_fps)
+    app = FallingSand(root, application_title, window_width, window_height, cell_size, target_fps, debug)
     app.run()
