@@ -1,4 +1,6 @@
+import pickle
 import tkinter as tk
+import tkinter.filedialog as tkFileDialog
 import numpy as np
 from random import choice
 import time
@@ -202,22 +204,44 @@ class FallingSand:
     def set_particle(self, value):
         self.current_particle = value
     
+    def reset_scene(self):
+        self.grid.fill((AIR,AIR_COLOR))
+        self.canvas.delete("all")
+
+    def save_scene(self, filename):
+        with open(filename, 'wb') as file:
+            pickle.dump(self.grid, file)
+
+    def load_scene(self, filename):
+        with open(filename, 'rb') as file:
+            self.grid = pickle.load(file)
+        
+        self.canvas.delete("all")
+        for row in range(self.rows):
+            for column in range(self.columns):
+                if self.grid[row][column][0] != AIR:
+                    self.canvas.create_rectangle(column * self.cell_size, row * self.cell_size, (column + 1) * self.cell_size, (row + 1) * self.cell_size, fill=self.grid[row][column][1], outline="")
+
+    def save_scene_dialog(self):
+        filename = tk.filedialog.asksaveasfilename(defaultextension=".sand")
+        if filename:
+            self.save_scene(filename)
+    
+    def load_scene_dialog(self):
+        filename = tk.filedialog.askopenfilename(filetypes=[("Sand Simulator Scenes", "*.sand")])
+        if filename:
+            self.load_scene(filename)
+
     def build_menu(self):
-        # TODO: Make the menus work
         menu_bar = tk.Menu(self.root)
         file_menu = tk.Menu(menu_bar, tearoff=0)
-        file_menu.add_command(label="New")
-        file_menu.add_command(label="Open")
-        file_menu.add_command(label="Save (Ctrl + S)")
+        file_menu.add_command(label="New Scene (Ctrl + N)", command=self.reset_scene)
+        file_menu.add_command(label="Open Scene (Ctrl + O)", command=self.load_scene_dialog)
+        file_menu.add_command(label="Save Scene (Ctrl + S)", command=self.save_scene_dialog)
         file_menu.add_separator()
         file_menu.add_command(label="Exit", command=self.root.quit)
         menu_bar.add_cascade(label="File", menu=file_menu)
         
-        edit_menu = tk.Menu(menu_bar, tearoff=0)
-        edit_menu.add_command(label="Undo (Ctrl + Z)")
-        edit_menu.add_command(label="Redo (Ctrl + Y)")
-        menu_bar.add_cascade(label="Edit", menu=edit_menu)
-
         particle_menu = tk.Menu(menu_bar, tearoff=0)
         particle_menu.add_radiobutton(label="Sand", command=lambda: self.set_particle(SAND))
         particle_menu.add_radiobutton(label="Water", command=lambda: self.set_particle(WATER))
