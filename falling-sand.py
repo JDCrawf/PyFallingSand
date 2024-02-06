@@ -3,18 +3,21 @@ import numpy as np
 from random import choice
 import time
 
-# These are not being used yet
-AIR = 0
-STONE = 1
-SAND = 2
-WATER = 3
+AIR = 0     # Empty tile
+STONE = 1   # stationary and indestructible
+SAND = 2    # falls down and piles up, heavier than water
+WATER = 3   # falls down and spreads out
+WOOD = 4    # stationary but flammable
+FIRE = 5    # spreads onto flammable particles
 
 # element colors
 # https://www.plus2net.com/python/tkinter-colors.php
-AIR_COLOR = "#FAEBD7"
-STONE_COLOR = "gray27"
-SAND_COLOR = "#F4A460"
-WATER_COLOR = "CadeyBlue1"
+AIR_COLOR = "#FAEBD7" # note: we should never actually be drawing air rectangles, this is just for the canvas background
+STONE_COLOR = "#808A87" # coldgrey
+WOOD_COLOR = "#8B4513" # chocolate
+SAND_COLOR = "#F4A460" # saddlebrown
+WATER_COLOR = "#7FFFD4" # aquamarine1
+FIRE_COLOR = "#FF6103" #cadmiumorange
 
 class FallingSand:
     def __init__(self, root, title, width, height, cell_size, target_fps, debug):
@@ -32,7 +35,8 @@ class FallingSand:
         # Simulation Variables
         self.columns = width // cell_size  # x
         self.rows    = height // cell_size # y
-        self.grid    = np.zeros((self.rows, self.columns, 2), dtype=object) # creates a 2d grid, each containing a tuple with an int representing the particle type and a string for the color
+        self.grid    = np.zeros((self.rows, self.columns), dtype=[('particle_type', int),('particle_color','U10')])
+        self.grid.fill((AIR,AIR_COLOR))
         self.drawing = False
         self.mouse_position = (0,0)
         self.target_fps = target_fps
@@ -72,8 +76,6 @@ class FallingSand:
     
     def track_mouse(self, event):
         self.mouse_position = (event.x, event.y)
-        #if self.debug:
-        #    print(f"{event.x//self.cell_size}x{event.y//self.cell_size}")
     
     def vary_color(self, color):
         # color is set to hex values
@@ -90,10 +92,8 @@ class FallingSand:
                 self.canvas.create_text(column*self.cell_size + 10, row*self.cell_size + 10, text=f"{row},{column}", font=("Helvetica", 8)) 
 
     def swap_particles(self, particle_1, particle_2):
-        grid_x1 = particle_1[0]
-        grid_y1 = particle_1[1]
-        grid_x2 = particle_2[0]
-        grid_y2 = particle_2[1]
+        grid_x1, grid_y1 = particle_1
+        grid_x2, grid_y2 = particle_2
         # pass the particle location as a tuple(row, column)
         temp = tuple(self.grid[grid_x1][grid_y1])
         self.grid[grid_x1][grid_y1] = self.grid[grid_x2][grid_y2]
@@ -103,18 +103,15 @@ class FallingSand:
         canvas_x1 = grid_y1 * self.cell_size
         canvas_y2 = grid_x2 * self.cell_size
         canvas_x2 = grid_y2 * self.cell_size
-        # If the particle at location1 is now air, delete the rectangle
-        if self.grid[grid_x1][grid_y1][0] == AIR:
-            self.canvas.delete(self.canvas.find_overlapping(canvas_x1+1,canvas_y1+1,canvas_x1+2,canvas_y1+2))
-        # else draw whatever particle is at location2
-        else:
+
+        # delete whatever rectangles were at the old locations
+        self.canvas.delete(self.canvas.find_overlapping(canvas_x1+1,canvas_y1+1,canvas_x1+2,canvas_y1+2))
+        self.canvas.delete(self.canvas.find_overlapping(canvas_x2+1,canvas_y2+1,canvas_x2+2,canvas_y2+2))
+
+        # draw the new rectangles if they're not AIR
+        if self.grid[grid_x1][grid_y1][0] != AIR:
             self.canvas.create_rectangle(canvas_x1, canvas_y1, canvas_x1+cell_size, canvas_y1+cell_size, fill=self.grid[grid_x1][grid_y1][1], outline="")
-        
-        # If the particle at location2 is now air, delete the rectangle
-        if self.grid[grid_x2][grid_y2][0] == AIR:
-            self.canvas.delete(self.canvas.find_overlapping(canvas_x2+1,canvas_y2+1,canvas_x2+2,canvas_y2+2))
-        # else draw whatever particle is at location2
-        else:
+        if self.grid[grid_x2][grid_y2][0] != AIR:
             self.canvas.create_rectangle(canvas_x2, canvas_y2, canvas_x2+cell_size, canvas_y2+cell_size, fill=self.grid[grid_x2][grid_y2][1], outline="")
 
 
@@ -130,6 +127,12 @@ class FallingSand:
                     self.grid[row][column] = (SAND, self.vary_color(SAND_COLOR))
                 elif self.current_particle == WATER: # If current particle is WATER
                     self.grid[row][column] = (WATER, self.vary_color(WATER_COLOR))
+                elif self.current_particle == STONE:
+                    self.grid[row][column] = (STONE, self.vary_color(STONE_COLOR))
+                    self.swap_particles((row,column),(row,column))
+                elif self.current_particle == AIR:
+                    self.grid[row][column] = (AIR, AIR_COLOR)
+                    self.swap_particles((row,column),(row,column))
             self.root.after_idle(self.draw_particle)
     
     def update_particle(self): 
@@ -148,21 +151,38 @@ class FallingSand:
                         direction = choice([-1,1])
                         # if the tile down one and to the direction on is AIR or WATER, then swap with that tile
                         if 0<= column+direction < self.columns:
-                            if self.grid[row+1][column+direction][0] == AIR or self.grid[row+1][column+direction][0] == WATER:
+                            if (self.grid[row+1][column+direction][0] == AIR or self.grid[row+1][column+direction][0] == WATER) and (self.grid[row][column+direction][0] == AIR or self.grid[row][column+direction][0] == WATER):
                                 self.swap_particles((row,column),(row+1,column+direction))
-                        # if the tile down one and to the direction on is AIR or WATER, then swap with that tile
-                        elif  0<= column-direction < self.columns:
-                            if self.grid[row+1][column-direction][0] == AIR or self.grid[row+1][column-direction][0] == WATER:
-                                self.swap_particles((row,column),(row+1,column-direction))
                         # if both diagonal spots have non-AIR or non-WATER particles, then stay in place
-                        else:
-                            # DO NOTHING, particle stays in place
-                            pass
                     # If there is no obstacles below it
                     else:
                         # move down one
                         self.swap_particles((row,column),(row+1,column))
-
+                #WATER
+                elif self.grid[row][column][0] == WATER:
+                    # if its the bottom of the grid, move back and forth
+                    # if there is a non-AIR particle, move back and forth
+                    if row == self.rows-1 or self.grid[row+1][column][0] != AIR:
+                        direction = choice([-1,0,1, 1,1,1,1,1]) # the more 0's in this the slower the water will slosh
+                        if direction != 0:
+                            # if the tile in the direction is AIR, swap
+                            if 0<= column+direction < self.columns:
+                                if self.grid[row][column+direction][0] == AIR:
+                                    self.swap_particles((row,column),(row,column+direction))
+                            # else if the tile in the other direction is AIR, swap
+                            if 0<= column-direction < self.columns:
+                                if self.grid[row][column-direction][0] == AIR:
+                                    self.swap_particles((row,column),(row,column-direction))
+                            # else if both neighbors are occupied, do nothing
+                    #else if there is no obstacles below it
+                    else:
+                        # move down one
+                        self.swap_particles((row,column),(row+1,column))
+                # STONE
+                elif self.grid[row][column][0] == STONE:
+                    # STONE does not move once placed
+                    pass
+        
         # Calculate FPS
         current_time = time.time()
         elapsed_time = current_time - self.last_time
