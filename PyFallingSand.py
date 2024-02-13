@@ -3,23 +3,23 @@ from tkinter import filedialog  # Save/load tkinter interfaces
 import pickle                   # allows saving and loading of files
 import numpy as np              # easy array interface
 from random import choice       # for particle physics
-import time
+import time                     # used for debugging and capping FPS
 
-AIR = 0     # Empty tile
+AIR   = 0   # Empty tile
 STONE = 1   # stationary and indestructible
-SAND = 2    # falls down and piles up, heavier than water
+SAND  = 2   # falls down and piles up, heavier than water
 WATER = 3   # falls down and spreads out
-WOOD = 4    # stationary but flammable
-FIRE = 5    # spreads onto flammable particles
+WOOD  = 4   # stationary but flammable
+FIRE  = 5   # spreads onto flammable particles
 
 # element colors
 # https://www.plus2net.com/python/tkinter-colors.php
-AIR_COLOR = "#FAEBD7" # antiquewhite note: we should never actually be drawing AIR rectangles, this is just for the canvas background really
+AIR_COLOR   = "#FAEBD7" # antiquewhite note: we should never actually be drawing AIR rectangles, this is just for the canvas background really
 STONE_COLOR = "#808A87" # coldgrey
-WOOD_COLOR = "#8B4513" # chocolate
-SAND_COLOR = "#F4A460" # saddlebrown
+WOOD_COLOR  = "#8B4513" # chocolate
+SAND_COLOR  = "#F4A460" # saddlebrown
 WATER_COLOR = "#7FFFD4" # aquamarine1
-FIRE_COLOR = "#FF6103" #cadmiumorange
+FIRE_COLOR  = "#FF6103" #cadmiumorange
 
 # Create the info window with information about the different particles
 class ParticleInfoWindow:
@@ -75,7 +75,6 @@ class FallingSand:
         self.particle_grid = np.zeros((self.rows, self.columns), dtype=[('particle_type', int),('particle_color','U7')])
         # Fill the grid with default value of AIR. AIR_COLOR is probably not needed
         self.particle_grid.fill((AIR,AIR_COLOR))
-        self.buffer_grid = np.copy(self.particle_grid)
         self.updated_particles = []
         
         # Canvas Variables
@@ -98,10 +97,8 @@ class FallingSand:
         self.canvas.bind("<ButtonRelease-1>", self.on_mouse_up) # stop drawing sand when mouse is released
         self.canvas.bind("<Motion>", self.track_mouse) # update the current mouse position in relation to the canvas
 
-        # Create the menu bar at the top of the window
-        self.build_menu()
-
-        self.root.after(0, self.update_canvas)
+        # Start the animation loop
+        self.root.after_idle(self.update_canvas)
 
     # Debug methods
     def debug_on_closing(self):
@@ -205,11 +202,15 @@ class FallingSand:
         # create a copy of particle_1
         # move particle_2 to particle_1's location
         # move the copy of particle_1 to particle_2's location
-        temp = tuple(self.particle_grid[p1_row, p1_column])
-        self.particle_grid[p1_row, p1_column] = self.particle_grid[p2_row, p2_column]
-        self.particle_grid[p2_row, p2_column] = temp
-        self.updated_particles.append((p1_row, p1_column))
-        self.updated_particles.append((p2_row, p2_column))
+        temp = tuple(self.particle_grid[p1_row][p1_column])
+        self.particle_grid[p1_row][p1_column] = self.particle_grid[p2_row][p2_column]
+        self.particle_grid[p2_row][p2_column] = temp
+
+        # Add the particles to the updated_particles array if they're not already there
+        if (p1_row, p1_column) not in self.updated_particles:
+            self.updated_particles.append((p1_row, p1_column))
+        if (p2_row, p2_column) not in self.updated_particles:
+            self.updated_particles.append((p2_row, p2_column))
     def update_sand(self, sand_location):
         '''
         The update logic for sand particles
@@ -222,7 +223,6 @@ class FallingSand:
         # if the particle is at the bottom of the grid(or somehow past it)
         if row >= self.rows-1:
             # do nothing
-            self.updated_particles.remove(sand_location)
             return
 
         # Identify the particle below our sand location
@@ -246,13 +246,13 @@ class FallingSand:
         
         # Is the particle diagonally down in that direction AIR or WATER?
         particle_diagonal = self.particle_grid[row+1][column+direction][0]
-        if particle_diagonal in {AIR, WATER}:
+        particle_adjacent = self.particle_grid[row][column+direction][0] # adding this stops the particle from slipping down diagonal gaps in walls
+        if particle_diagonal in {AIR, WATER} and particle_adjacent in {AIR, WATER}:
             # Swap the sand particle to that location
             # TODO: I want better logic for WATER particles
             self.swap_particles(sand_location, (row+1, column+direction))
             #return
         # if you've reached here, then do nothing
-        self.updated_particles.remove(sand_location)
     def update_water(self, water_location):
         '''
         The update logic for water particles
@@ -265,9 +265,22 @@ class FallingSand:
         # if the particle is at the bottom of the grid(or somehow past it)
         if row >= self.rows-1:
             # move in a random direction, if able
-            print("WATER at bottom")
-            self.updated_particles.remove(water_location)
+            # pick a random direction
+            direction = choice([-1,0,1])
+            # is that direction out of bounds or 0?
+            if not (0 <= column+direction < self.columns) or direction == 0:
+                # do nothing
+                return
+            # else that direction is in bounds and not 0
+
+            # is the particle in that direction AIR?
+            if self.particle_grid[row][column+direction][0] == AIR:
+                # Swap the water particle in that direction
+                self.swap_particles(water_location, (row, column+direction))
+                #return
+            # if you've reached here, then do nothing
             return
+
         # else that particle is not at the bottom of the grid
 
         # Identify the particle below our location
@@ -293,25 +306,21 @@ class FallingSand:
             self.swap_particles(water_location, (row, column+direction))
             #return
         # if you've reached here, then do nothing
-        print("WATER blocked on both sides")
-        self.updated_particles.remove(water_location)
     def update_particles(self):
         '''
         The update logic for all particle types
         '''
-        print("update particles")
         for column in range(self.columns):
             for row in range(self.rows-1, -1, -1):
-                if (row, column) in self.updated_particles:
-                    particle_type = self.particle_grid[row][column][0]
-                    if particle_type == SAND:
-                        self.update_sand((row, column))
-                    elif particle_type == WATER:
-                        self.update_water((row, column))
-                    elif particle_type in {STONE, WOOD, AIR}:
-                        continue
-                    else:
-                        print(f"Error: update_particles() - Invalid particle type: {particle_type}")       
+                particle_type = self.particle_grid[row][column][0]
+                if particle_type == SAND:
+                    self.update_sand((row, column))
+                elif particle_type == WATER:
+                    self.update_water((row, column))
+                elif particle_type in {STONE, WOOD, AIR}:
+                    continue
+                else:
+                    print(f"Error: update_particles() - Invalid particle type: {particle_type}")       
     def place_particle(self):
         '''
         References the mouse location to place a particle in the corresponding grid location
@@ -353,8 +362,10 @@ class FallingSand:
             # Update particle grid and draw the new particle
             self.particle_grid[row][column] = (self.current_particle, particle_color)
             # mark the particle as updated and draw the initial particle
-            self.updated_particles.append((row, column))
-            self.draw_particle((row, column))
+            if (row, column) not in self.updated_particles:
+                self.updated_particles.append((row, column))
+            #self.draw_particle((row, column))
+        self.root.after(5, self.place_particle)
 
     # Canvas Methods
     def draw_particle(self, location):
@@ -379,18 +390,20 @@ class FallingSand:
 
         # draw the new rectangle
         self.canvas.create_rectangle(canvas_x, canvas_y, canvas_x+self.cell_size, canvas_y+self.cell_size, fill=particle_color, outline="")
+        #self.updated_particles.remove(location)
     def update_canvas(self):
         '''
         Each step update the particles that have changed between updates
         '''
         self.update_particles()
 
+        #self.canvas.delete("all")
         # only update the particles that have been flagged as changed
         for row, column in self.updated_particles:
             self.draw_particle((row, column))
-        #self.updated_particles.clear()
+        self.updated_particles.clear()
 
-        root.after(5, self.update_canvas) # calls itself every second(1000ms)
+        root.after(5, self.update_canvas) # calls itself every X milliseconds(1000ms = 1s)
 
     # Menu methods
     def particle_info_window(self):
@@ -447,6 +460,8 @@ class FallingSand:
         self.root.config(menu=menu_bar)
 
     def run(self):
+        # Create the menu bar at the top of the window
+        self.build_menu()
         self.root.mainloop()
 
 if __name__ == '__main__':

@@ -85,8 +85,6 @@ class FallingSand:
         self.mouse_position = (0,0)
         
         self.root.protocol("WM_DELETE_WINDOW", self.on_closing)
-
-        self.vary_color(SAND_COLOR)
         
         self.canvas = tk.Canvas(root, width=width, height=height, bg=AIR_COLOR)
         self.canvas.pack()
@@ -101,6 +99,8 @@ class FallingSand:
         self.canvas.bind("<ButtonRelease-1>", self.stop_drawing) # stop drawing sand when mouse is released
         self.canvas.bind("<Motion>", self.track_mouse) # update the current mouse position in relation to the canvas
         self.last_time = time.time()
+
+        self.update_particle()
 
 
     def on_closing(self):
