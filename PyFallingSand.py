@@ -171,6 +171,11 @@ class FallingSand:
         filename = filedialog.askopenfilename(filetypes=[("PyFallingSand Scenes", "*.sand")])
         if filename:
             self.load_scene(filename)
+        
+        # redraw the entire canvas
+        for row in range(self.rows):
+            for column in range(self.columns):
+                self.updated_particles.append((row,column))
 
     # Helper methods
     def vary_color(self, color):
