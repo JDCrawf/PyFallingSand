@@ -110,7 +110,6 @@ class FallingSand:
         self.debug_log += f"{message} took {(current_time-self.debug_time):3f}milliseconds\n"
         self.debug_time = time.time()
 
-
     # Mouse control methods
     def on_mouse_down(self, event):
         '''
