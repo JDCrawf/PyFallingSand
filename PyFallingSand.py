@@ -6,13 +6,13 @@ import numpy as np                # easy array interface
 from random import choice, random # for particle physics
 import time                       # used for debugging and capping FPS
 
-AIR        = 0 # Empty tile
-STONE      = 1 # stationary and indestructible
-SAND       = 2 # falls down and piles up, heavier than water
-WATER      = 3 # falls down and spreads out
-WOOD       = 4 # stationary but flammable
-FIRE       = 5 # spreads onto flammable particles, produces smoke
-SMOKE      = 6 # floats upward drifting to the sides before disappearing
+AIR    = 0 # Empty tile
+STONE  = 1 # stationary and indestructible
+SAND   = 2 # falls down and piles up, heavier than water
+WATER  = 3 # falls down and spreads out
+WOOD   = 4 # stationary but flammable
+FIRE   = 5 # spreads onto flammable particles, produces smoke
+SMOKE  = 6 # floats upward drifting to the sides before disappearing
 
 # element colors
 # https://www.plus2net.com/python/tkinter-colors.php
@@ -88,8 +88,14 @@ class FallingSand:
         self.particle_grid.fill((AIR,AIR_COLOR))
         self.updated_particles = []
         self.flammable_particles = [WOOD]
-        self.fire_consumption_rate = 0.1
+        self.fire_consumption_rate = 0.1 # this can be modified depending on the flammable material type(i.e. oil burns faster than water)
         self.smoke_production_rate = 0.01
+        self.particle_actions = {
+            SAND: self.update_sand,
+            WATER: self.update_water,
+            FIRE: self.update_fire,
+            SMOKE: self.update_smoke
+        }
         
         # Mouse Variables
         self.mouse_down     = False
@@ -199,7 +205,7 @@ class FallingSand:
         hex_range = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'A', 'B', 'C', 'D', 'E', 'F']
         varied_color = f"#{color[1]}{choice(hex_range)}{color[3]}{choice(hex_range)}{color[5]}{choice(hex_range)}"
         return varied_color
-    def find_adjacent(self, location, target_list):
+    def find_any_adjacent(self, location, target_list):
         '''
         Search the tiles adjacent to the given location for target particle types
 
@@ -227,9 +233,44 @@ class FallingSand:
                 # is the particle one of the flammable particle types?
                 if particle_type in target_list:
                     return (check_row, check_column)
-                # else it's not a flammable particle so check the next location
+                # else its not the target particle so check the next location
         
         return False
+    def find_level_or_below(self, location, target, distance):
+        '''
+        Returns a list of all the copies of the target particle at the given location within the given distance
+
+        Args:
+            location (int,int): A tuple containing the grid location of the calling particle
+            target [(int,int)]: A list of tuples containing the grid locations of the target particles that are in range
+            distance (int): The maximum distance to search for the target particles
+        '''
+        row, column = location
+        result_list = []
+
+        # parse through the grid locations adjacent to the given location
+        for adjacent_row in range(0, distance):
+            for adjacent_column in range(-distance, distance):
+                # skip yourself
+                if adjacent_row == adjacent_column == 0:
+                    # do nothing
+                    continue
+
+                check_row, check_column = row + adjacent_row, column + adjacent_column
+                # is check_row and check_column out of bounds?
+                if not (0 <= check_row < self.rows and 0 <= check_column < self.columns):
+                    # do nothing
+                    continue
+                # else check_row and check_column are in bounds
+
+                # what particle is there?
+                particle_type = self.particle_grid[check_row][check_column][0]
+                # is the particle one of the target particle types?
+                if particle_type in target:
+                    result_list.append((check_row, check_column))
+                # else it's not a target particle so check the next location
+        
+        return result_list
 
     # Particle methods
     def swap_particles(self, particle_1, particle_2):
@@ -271,13 +312,17 @@ class FallingSand:
 
         # Identify the particle below our sand location
         particle_below = self.particle_grid[row+1][column][0]
+        
         # Is particle_below AIR or WATER?
         if particle_below in {AIR, WATER, FIRE}:
+            # Is the particle below FIRE?
+            if particle_below == FIRE:
+                # kill it
+                self.particle_grid[row+1][column] = (AIR, AIR_COLOR)
+            
             # Swap the sand particle to that location
             # TODO: I want better logic for WATER particles
             #       Maybe instead of raw swapping, I could have the particle "push" other water particles upward to make room for the sand
-            if particle_below == FIRE:
-                self.particle_grid[row+1][column] = (AIR, AIR_COLOR)
             self.swap_particles(sand_location, (row+1, column))
             return
         # If the particle is not AIR or WATER
@@ -293,7 +338,14 @@ class FallingSand:
         # Is the particle diagonally down in that direction AIR or WATER?
         particle_diagonal = self.particle_grid[row+1][column+direction][0]
         particle_adjacent = self.particle_grid[row][column+direction][0] # adding this stops the particle from slipping down diagonal gaps in walls
-        if particle_diagonal in {AIR, WATER} and particle_adjacent in {AIR, WATER}:
+
+        
+        if particle_diagonal in {AIR, WATER, FIRE} and particle_adjacent in {AIR, WATER}:
+            # Is the particle diagonally down FIRE?
+            if particle_diagonal == FIRE:
+                # kill it
+                self.particle_grid[row+1][column] = (AIR, AIR_COLOR)
+            
             # Swap the sand particle to that location
             # TODO: I want better logic for WATER particles
             self.swap_particles(sand_location, (row+1, column+direction))
@@ -309,6 +361,13 @@ class FallingSand:
         '''
         row, column = water_location
 
+        # kill any water at or below the particle
+        fire_below = self.find_level_or_below(water_location, [FIRE], 1)
+        for row,column in fire_below:
+            # kill any fire adjacent(left/right) or below the water particle
+            self.particle_grid[row][column] = (AIR, AIR_COLOR)
+            self.updated_particles.append((row,column))
+        
         # if the particle is at the bottom of the grid(or somehow past it)
         if row >= self.rows-1:
             # move in a random direction, if able
@@ -320,19 +379,20 @@ class FallingSand:
                 return
             # else that direction is in bounds and not 0
 
+            particle_side = self.particle_grid[row][column+direction][0]
             # is the particle in that direction AIR?
-            if self.particle_grid[row][column+direction][0] == AIR:
+            if particle_side == AIR:
                 # Swap the water particle in that direction
                 self.swap_particles(water_location, (row, column+direction))
                 #return
             # if you've reached here, then do nothing
             return
-
         # else that particle is not at the bottom of the grid
 
         # Identify the particle below our location
+        particle_below = self.particle_grid[row+1][column][0]
         # Is particle_below AIR?
-        if self.particle_grid[row+1][column][0] == AIR:
+        if particle_below == AIR:
             # Swap the water particle to that location
             self.swap_particles(water_location, (row+1, column))
             return
@@ -347,8 +407,9 @@ class FallingSand:
             return
         # else that direction is in bounds and not 0
 
+        particle_side = self.particle_grid[row][column+direction][0]
         # Is the particle in the direction AIR?
-        if self.particle_grid[row][column+direction][0] == AIR:
+        if particle_side == AIR:
             # Swap the water particle to that location
             self.swap_particles(water_location, (row, column+direction))
             #return
@@ -365,8 +426,8 @@ class FallingSand:
         row, column = fire_location
         
         # If there is not both flammable particles and AIR adjacent to the fire_location
-        adjacent_flammable = self.find_adjacent(fire_location, self.flammable_particles)
-        adjacent_air       = self.find_adjacent(fire_location, [AIR])
+        adjacent_flammable = self.find_any_adjacent(fire_location, self.flammable_particles)
+        adjacent_air       = self.find_any_adjacent(fire_location, [AIR])
         if not (adjacent_flammable != False and adjacent_air != False):
             # kill the FIRE particle and return
             self.particle_grid[row][column] = (AIR,AIR_COLOR)
@@ -395,6 +456,31 @@ class FallingSand:
         # else smoke wasn't produced this step
         
         # if you've reached here, then do nothing
+    def update_smoke(self, smoke_location):
+        '''
+        Update the logic for smoke particles
+
+        Args:
+            smoke_location (int,int): A tuple containing the grid location of the smoke particle
+        '''
+        #
+        #   I want smoke to float upward and take up available space, just like water
+        #   smoke should drift side to side as it moves upward(maybe)
+        #   smoke particles should die after an amount of time
+        row, column = smoke_location
+
+        # if the particle is at the top of the grid
+        if row == 0:
+            # move in a random direction, if able
+            # pick a random direction
+            direction = choice([-1,0,1])
+            # is that direction out of bounds or 0?
+            if direction == 0 and not (0 <= column+direction < self.columns):
+                # do nothing
+                return
+            # else that direction is in bounds and not 0
+
+
 
     def update_particles(self):
         '''
@@ -403,16 +489,12 @@ class FallingSand:
         for column in range(self.columns):
             for row in range(self.rows-1, -1, -1):
                 particle_type = self.particle_grid[row][column][0]
-                if particle_type == SAND:
-                    self.update_sand((row, column))
-                elif particle_type == WATER:
-                    self.update_water((row, column))
-                elif particle_type == FIRE:
-                    self.update_fire((row, column))
+                if particle_type in self.particle_actions:
+                    self.particle_actions[particle_type]((row, column))
                 elif particle_type in {STONE, WOOD, AIR}:
                     continue
                 else:
-                    print(f"Error: update_particles() - Invalid particle type: {particle_type}")       
+                    print(f"Error: update_particles() - Invalid particle type: {particle_type}")
     def place_particle(self):
         '''
         References the mouse location to place a particle in the corresponding grid location
