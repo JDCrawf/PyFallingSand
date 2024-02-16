@@ -1,16 +1,18 @@
-import tkinter as tk            # Creates tkinter windows
-from tkinter import filedialog  # Save/load tkinter interfaces
-import pickle                   # allows saving and loading of files
-import numpy as np              # easy array interface
-from random import choice       # for particle physics
-import time                     # used for debugging and capping FPS
+import tkinter as tk              # Creates tkinter windows
+from tkinter import filedialog    # Save/load tkinter interfaces
+import pickle                     # allows saving and loading of files
+import os                         # for checking and creating save directory
+import numpy as np                # easy array interface
+from random import choice, random # for particle physics
+import time                       # used for debugging and capping FPS
 
-AIR   = 0   # Empty tile
-STONE = 1   # stationary and indestructible
-SAND  = 2   # falls down and piles up, heavier than water
-WATER = 3   # falls down and spreads out
-WOOD  = 4   # stationary but flammable
-FIRE  = 5   # spreads onto flammable particles
+AIR        = 0 # Empty tile
+STONE      = 1 # stationary and indestructible
+SAND       = 2 # falls down and piles up, heavier than water
+WATER      = 3 # falls down and spreads out
+WOOD       = 4 # stationary but flammable
+FIRE       = 5 # spreads onto flammable particles, produces smoke
+SMOKE      = 6 # floats upward drifting to the sides before disappearing
 
 # element colors
 # https://www.plus2net.com/python/tkinter-colors.php
@@ -19,7 +21,8 @@ STONE_COLOR = "#808A87" # coldgrey
 WOOD_COLOR  = "#8B4513" # chocolate
 SAND_COLOR  = "#F4A460" # saddlebrown
 WATER_COLOR = "#7FFFD4" # aquamarine1
-FIRE_COLOR  = "#FF6103" #cadmiumorange
+FIRE_COLOR  = "#FF6103" # cadmiumorange
+SMOKE_COLOR = "#A9A9A9" # darkgray
 
 # Create the info window with information about the different particles
 class ParticleInfoWindow:
@@ -59,7 +62,12 @@ class FallingSand:
         self.root = root
         self.root.title(title)
         self.root.geometry(f"{width}x{height}")
-        self.root.resizable(False,False)
+        #self.root.resizable(False,False)
+
+        # Set up directory for saving files
+        self.save_directory = "./bin/saves"
+        if not os.path.exists(self.save_directory):
+            os.makedirs(self.save_directory)
         
         # Debug settings
         self.debug_log = "DEBUG LOG\n\n"
@@ -69,19 +77,20 @@ class FallingSand:
         self.current_particle = SAND
         
         # Simulation Variables
-        self.columns = width // cell_size  # x
-        self.rows    = height // cell_size # y
+        self.cell_size = cell_size
+        self.canvas_width   = width
+        self.canvas_height  = height
+        self.columns   = width // cell_size  # x
+        self.rows      = height // cell_size # y
         # Creates a grid of size [rows][columns] filled with tuples that contain (int, 7 character string).  The string is 7characters since it should only be a hex value starting with '#'
         self.particle_grid = np.zeros((self.rows, self.columns), dtype=[('particle_type', int),('particle_color','U7')])
         # Fill the grid with default value of AIR. AIR_COLOR is probably not needed
         self.particle_grid.fill((AIR,AIR_COLOR))
         self.updated_particles = []
+        self.flammable_particles = [WOOD]
+        self.fire_consumption_rate = 0.1
+        self.smoke_production_rate = 0.01
         
-        # Canvas Variables
-        self.canvas_width   = width
-        self.canvas_height  = height
-        self.cell_size      = cell_size
-
         # Mouse Variables
         self.mouse_down     = False
         self.mouse_position = (0,0)
@@ -90,9 +99,9 @@ class FallingSand:
         
         # Create the canvas to display the simulation
         self.canvas = tk.Canvas(root, width=width, height=height, bg=AIR_COLOR)
-        self.canvas.pack()
+        self.canvas.pack(fill="both", expand=True)
         
-        # Draw and update the sand particles
+        # Binding mouse events for drawing control
         self.canvas.bind("<ButtonPress-1>", self.on_mouse_down) # start drawing sand when mouse is pressed down
         self.canvas.bind("<ButtonRelease-1>", self.on_mouse_up) # stop drawing sand when mouse is released
         self.canvas.bind("<Motion>", self.track_mouse) # update the current mouse position in relation to the canvas
@@ -131,7 +140,7 @@ class FallingSand:
         '''
         #if self.mouse_down:
             #(row,column) <=> (y, x)
-        self.mouse_position = (event.y // self.cell_size, event.x // self.cell_size)
+        self.mouse_position = (event.y // self.cell_size - 1, event.x // self.cell_size)
 
     # Saving/Loading methods
     def save_scene(self, path):
@@ -159,7 +168,7 @@ class FallingSand:
         Creates a save dialog window
         Opens a file dialog to set the path for the current scene to be saved as
         '''
-        filename = filedialog.asksaveasfilename(defaultextension=".sand")
+        filename = filedialog.asksaveasfilename(initialdir=self.save_directory, initialfile="scene", defaultextension=".sand")
         if filename:
             self.save_scene(filename)
     def load_dialog(self):
@@ -167,7 +176,7 @@ class FallingSand:
         Creates a load dialog window
         Opens a file dialog to retrieve the path to a scene to be loaded from
         '''
-        filename = filedialog.askopenfilename(filetypes=[("PyFallingSand Scenes", "*.sand")])
+        filename = filedialog.askopenfilename(initialdir=self.save_directory, filetypes=[("PyFallingSand Scenes", "*.sand")])
         if filename:
             self.load_scene(filename)
         
@@ -190,6 +199,37 @@ class FallingSand:
         hex_range = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'A', 'B', 'C', 'D', 'E', 'F']
         varied_color = f"#{color[1]}{choice(hex_range)}{color[3]}{choice(hex_range)}{color[5]}{choice(hex_range)}"
         return varied_color
+    def find_adjacent(self, location, target_list):
+        '''
+        Search the tiles adjacent to the given location for target particle types
+
+        Args:
+            location (int,int): A tuple containing the grid location of the calling particle
+            target_list (list): A list of particles to be searching for
+        '''
+        row, column = location
+        # parse through the grid locations adjacent to the given location
+        for adjacent_row in [-1,0,1]:
+            for adjacent_column in [-1,0,1]:
+                # skip yourself
+                if adjacent_row == adjacent_column == 0:
+                    continue
+
+                check_row, check_column = row + adjacent_row, column + adjacent_column
+                # is check_row and check_column out of bounds?
+                if not (0 <= check_row < self.rows and 0 <= check_column < self.columns):
+                    # do nothing
+                    continue
+                # else check_row and check_column are in bounds
+
+                # what particle is there?
+                particle_type = self.particle_grid[check_row][check_column][0]
+                # is the particle one of the flammable particle types?
+                if particle_type in target_list:
+                    return (check_row, check_column)
+                # else it's not a flammable particle so check the next location
+        
+        return False
 
     # Particle methods
     def swap_particles(self, particle_1, particle_2):
@@ -232,10 +272,12 @@ class FallingSand:
         # Identify the particle below our sand location
         particle_below = self.particle_grid[row+1][column][0]
         # Is particle_below AIR or WATER?
-        if particle_below in {AIR, WATER}:
+        if particle_below in {AIR, WATER, FIRE}:
             # Swap the sand particle to that location
             # TODO: I want better logic for WATER particles
             #       Maybe instead of raw swapping, I could have the particle "push" other water particles upward to make room for the sand
+            if particle_below == FIRE:
+                self.particle_grid[row+1][column] = (AIR, AIR_COLOR)
             self.swap_particles(sand_location, (row+1, column))
             return
         # If the particle is not AIR or WATER
@@ -255,7 +297,8 @@ class FallingSand:
             # Swap the sand particle to that location
             # TODO: I want better logic for WATER particles
             self.swap_particles(sand_location, (row+1, column+direction))
-            #return
+        #else that diagonal location wasn't WATER or AIR
+        
         # if you've reached here, then do nothing
     def update_water(self, water_location):
         '''
@@ -309,7 +352,50 @@ class FallingSand:
             # Swap the water particle to that location
             self.swap_particles(water_location, (row, column+direction))
             #return
+        # else that particle wasn't AIR
+
         # if you've reached here, then do nothing
+    def update_fire(self, fire_location):
+        '''
+        Update the logic for fire particles
+
+        Args:
+            fire_location (int,int): A tuple containing the grid location of the fire particle
+        '''
+        row, column = fire_location
+        
+        # If there is not both flammable particles and AIR adjacent to the fire_location
+        adjacent_flammable = self.find_adjacent(fire_location, self.flammable_particles)
+        adjacent_air       = self.find_adjacent(fire_location, [AIR])
+        if not (adjacent_flammable != False and adjacent_air != False):
+            # kill the FIRE particle and return
+            self.particle_grid[row][column] = (AIR,AIR_COLOR)
+            self.updated_particles.append((row,column))
+            return
+        # else there is a flammable particle particle and AIR adjacent to the location
+
+        # does the FIRE consume the flammable particle(spread) this step?
+        particle_consumed = random() < self.fire_consumption_rate
+        # if random chance decided the particle is consumed
+        if particle_consumed:
+            # turn the particle into a FIRE particle
+            consumed_row, consumed_column = adjacent_flammable
+            self.particle_grid[consumed_row][consumed_column] = (FIRE, FIRE_COLOR)
+            self.updated_particles.append(adjacent_flammable)
+        # else the particle was not consumed this step
+
+        # does the FIRE produce SMOKE this step?
+        smoke_produced = random() < self.smoke_production_rate
+        smoke_produced = False
+        # if random chance decided the particle is produced
+        if smoke_produced:
+            # turn the particle into a SMOKE particle
+            produced_row, produced_column = adjacent_air
+            self.particle_grid[produced_row][produced_column] = (SMOKE, self.vary_color(SMOKE_COLOR))
+        # else smoke wasn't produced this step
+        
+        # if you've reached here, then do nothing
+
     def update_particles(self):
         '''
         The update logic for all particle types
@@ -321,6 +407,8 @@ class FallingSand:
                     self.update_sand((row, column))
                 elif particle_type == WATER:
                     self.update_water((row, column))
+                elif particle_type == FIRE:
+                    self.update_fire((row, column))
                 elif particle_type in {STONE, WOOD, AIR}:
                     continue
                 else:
@@ -336,22 +424,18 @@ class FallingSand:
         # else button1 is pressed down
 
         row, column = self.mouse_position
-        # is the mouse within the bounds of the grid?
-        if 0 <= row < self.rows and 0 <= column < self.columns:
-        
-        # TODO: decide if I want to let particles replace existing particles
-        #    # is there a particle already in that grid location?
-        #    if self.particle_grid[row][column][0] != AIR:
-        #        # do nothing
-        #        return
-        #    # else the particle is not in that grid location
-        #   else:
+        # is the mouse is out of bounds of the grid?
+        if not (0 <= row < self.rows and 0 <= column < self.columns):
+            # do nothing
+            pass
+        else:
             # Define a dictionary mapping particle types to colors
             particle_colors = {
                 SAND: self.vary_color(SAND_COLOR),
                 WATER: self.vary_color(WATER_COLOR),
                 STONE: STONE_COLOR,
                 WOOD: self.vary_color(WOOD_COLOR),
+                FIRE: FIRE_COLOR,
                 AIR: AIR_COLOR
             }
 
@@ -360,7 +444,7 @@ class FallingSand:
 
             # If somehow the self.current_particle does not correspond to an entry in the particle_colors dictionary
             if particle_color is None:
-                print(f"Error: place_particles() -Invalid particle type: {self.current_particle}")
+                print(f"Error: place_particle() -Invalid particle type: {self.current_particle}")
                 return
 
             # Update particle grid and draw the new particle
@@ -369,7 +453,7 @@ class FallingSand:
             if (row, column) not in self.updated_particles:
                 self.updated_particles.append((row, column))
             #self.draw_particle((row, column))
-        self.root.after(5, self.place_particle)
+        self.root.after(1, self.place_particle)
 
     # Canvas Methods
     def draw_particle(self, location):
@@ -453,6 +537,7 @@ class FallingSand:
         particle_menu.add_radiobutton(label="Water", command=lambda: self.set_particle(WATER))
         particle_menu.add_radiobutton(label="Stone", command=lambda: self.set_particle(STONE))
         particle_menu.add_radiobutton(label="Wood", command=lambda: self.set_particle(WOOD))
+        particle_menu.add_radiobutton(label="Fire", command=lambda: self.set_particle(FIRE))
         particle_menu.add_radiobutton(label="Erase", command=lambda: self.set_particle(AIR))
         menu_bar.add_cascade(label="Particles", menu=particle_menu)
         
